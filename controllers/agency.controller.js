@@ -22,6 +22,20 @@ const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const sgMail = require("@sendgrid/mail");
 
+const admin = require("firebase-admin");
+const serviceAccount = require("../hire2inspire-firebase-adminsdk.json");
+
+const express = require('express')
+const app = express()
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
+    storageBucket: process.env.BUCKET_URL
+}, "default");
+app.locals.bucket = admin.storage().bucket()
+
+const config = require('./../config/config')
+
 // var transport = nodemailer.createTransport({
 //   host: process.env.EMAIL_HOST,
 //   port: 465,
@@ -869,6 +883,39 @@ module.exports = {
       }
     } catch (error) {
       next(error);
+    }
+  },
+
+  invoiceUpload: async (req, res, next) => {
+    try {
+      let { id } = req.params.id;
+      if (!id) {
+        throw new Error("Id not found");
+      }
+
+      let agencyObj = await AgencyTransaction.findOne({ _id: id });
+
+      if (!agencyObj) {
+        throw new Error("Agency Transaction id Not Found");
+      }
+
+      if (!req.file) {
+        throw new Error("Pleas Upload Invoice");
+      }
+
+      const fileName = `AGENCY_INVOICE${Date.now()}_${req.file.originalname}`;
+      await app.locals.bucket
+        .file(fileName)
+        .createWriteStream()
+        .end(req.file.buffer);
+
+      let fileurl = `${config.fireBaseUrl}${fileName}?alt=media`;
+
+      await AgencyTransaction.findOneAndUpdate({ _id: id} ,{ invoiceUrl: fileName });
+
+      return sendRes(res, "File Uploaded Succesfully", fileName);
+    } catch (err) {
+      return sendError(res, 403, typeof err == "string" ? err : err.message);
     }
   },
 };
